@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>소금 AI 튜터 - 자세 & (청고)·汰(청태)·潢(청황) 통합 운지 캠</title>
+  <!-- MediaPipe Pose & Hands CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  
+  <style>
+    * { box-sizing: border-box; font-family: 'Pretendard', sans-serif; }
+    body { background: #f0f4f8; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+    h1 { color: #2c3e50; margin-bottom: 5px; }
+    p { color: #666; margin-top: 0; margin-bottom: 20px; }
+    
+    .container { display: flex; gap: 20px; max-width: 1150px; width: 100%; }
+    .video-box { position: relative; width: 640px; height: 480px; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 16px rgba(0,0,0,0.15); }
+    video, canvas { position: absolute; top: 0; left: 0; width: 640px; height: 480px; transform: scaleX(-1); /* 거울 모드 */ }
+    
+    .dashboard { flex: 1; display: flex; flex-direction: column; gap: 15px; }
+    .card { background: white; padding: 18px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .card h3 { margin-top: 0; color: #34495e; border-bottom: 2px solid #ecf0f1; padding-bottom: 8px; font-size: 17px; }
+    
+    .status-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-weight: bold; font-size: 13px; margin-bottom: 8px; }
+    .bg-good { background: #e8f8f5; color: #27ae60; }
+    .bg-warn { background: #fef9e7; color: #f39c12; }
+    
+    .feedback-list { list-style: none; padding: 0; margin: 0; }
+    .feedback-list li { margin-bottom: 6px; padding-left: 18px; position: relative; font-size: 14px; }
+    .feedback-list li::before { content: '•'; position: absolute; left: 0; color: #3498db; font-weight: bold; }
+    
+    /* 지공 인식 전용 스타일 */
+    .hole-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+    .hole-item { background: #f8f9fa; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #e9ecef; }
+    .hole-title { font-size: 12px; color: #7f8c8d; font-weight: bold; display: block; margin-bottom: 4px; }
+    .hole-ox { font-size: 20px; font-weight: bold; }
+    
+    .current-yulmyeong { margin-top: 12px; padding: 12px; background: #eef6fc; border-radius: 8px; text-align: center; border: 1px dashed #3498db; }
+    .yulmyeong-title { font-size: 13px; color: #2980b9; margin-bottom: 4px; }
+    .yulmyeong-value { font-size: 26px; font-weight: bold; color: #2c3e50; }
+  </style>
+</head>
+<body>
+
+  <h1>🎵 AI 소금 튜터: 자세 & 3지공( ·汰·潢) 분석 캠</h1>
+  <p>카메라 앞에서 소금의 제1, 2, 3지공을 짚어보고 실시간 인식 상태를 확인하세요!</p>
+
+  <div class="container">
+    <!-- 카메라 및 AI 스캔 화면 -->
+    <div class="video-box">
+      <video id="webcam" autoplay playsinline></video>
+      <canvas id="output_canvas"></canvas>
+    </div>
+
+    <!-- AI 분석 대시보드 -->
+    <div class="dashboard">
+      <!-- 자세 분석 카드 -->
+      <div class="card">
+        <h3>🧘‍♂️ 연주 자세 분석 (Pose)</h3>
+        <div id="pose_badge" class="status-badge bg-warn">자세 측정 중...</div>
+        <ul class="feedback-list" id="pose_feedback">
+          <li>카메라 앞에 바르게 앉아주세요.</li>
+        </ul>
+      </div>
+
+      <!-- 운지법 통합 분석 카드 -->
+      <div class="card">
+        <h3>✋ 왼손 지공(1·2·3공) 운지 분석</h3>
+        <div id="finger_badge" class="status-badge bg-warn">왼손 스캔 중...</div>
+        
+        <!-- 3지공 현황판 -->
+        <div class="hole-grid">
+          <div class="hole-item">
+            <span class="hole-title">제1지공 (집게)</span>
+            <span id="hole1_ox" class="hole-ox" style="color: #95a5a6;">-</span>
+          </div>
+          <div class="hole-item">
+            <span class="hole-title">제2지공 (가운데)</span>
+            <span id="hole2_ox" class="hole-ox" style="color: #95a5a6;">-</span>
+          </div>
+          <div class="hole-item">
+            <span class="hole-title">제3지공 (약지)</span>
+            <span id="hole3_ox" class="hole-ox" style="color: #95a5a6;">-</span>
+          </div>
+        </div>
+
+        <!-- 최종 감지된 율명 -->
+        <div class="current-yulmyeong">
+          <div class="yulmyeong-title">현재 완성된 운지 율명</div>
+          <div id="detected_yulmyeong" class="yulmyeong-value">-</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    // UI 요소
+    const poseBadge = document.getElementById('pose_badge');
+    const poseFeedback = document.getElementById('pose_feedback');
+    const fingerBadge = document.getElementById('finger_badge');
+    const hole1Ox = document.getElementById('hole1_ox');
+    const hole2Ox = document.getElementById('hole2_ox');
+    const hole3Ox = document.getElementById('hole3_ox');
+    const detectedYulmyeong = document.getElementById('detected_yulmyeong');
+
+    // MediaPipe Pose & Hands
+    const pose = new Pose({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}` });
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+    let latestPoseResults = null;
+    let latestHandResults = null;
+
+    pose.onResults((r) => { latestPoseResults = r; render(); });
+    hands.onResults((r) => { latestHandResults = r; });
+
+    function render() {
+      canvasElement.width = videoElement.videoWidth || 640;
+      canvasElement.height = videoElement.videoHeight || 480;
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      
+      if (latestPoseResults && latestPoseResults.poseLandmarks) {
+        drawConnectors(canvasCtx, latestPoseResults.poseLandmarks, POSE_CONNECTIONS, {color: '#00FF00', lineWidth: 1.5});
+        drawLandmarks(canvasCtx, latestPoseResults.poseLandmarks, {color: '#FF0000', lineWidth: 1, radius: 2});
+        analyzePose(latestPoseResults.poseLandmarks);
+      }
+
+      if (latestHandResults && latestHandResults.multiHandLandmarks) {
+        for (const landmarks of latestHandResults.multiHandLandmarks) {
+          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {color: '#1E90FF', lineWidth: 2});
+          drawLandmarks(canvasCtx, landmarks, {color: '#FFD700', lineWidth: 1, radius: 3});
+        }
+        analyzeTripleUnji(latestHandResults.multiHandLandmarks, latestHandResults.multiHandedness);
+      }
+
+      canvasCtx.restore();
+    }
+
+    // 자세 분석
+    function analyzePose(landmarks) {
+      const leftEar = landmarks[7], rightEar = landmarks[8];
+      const leftShoulder = landmarks[11], rightShoulder = landmarks[12];
+
+      let feedback = [];
+      let isGood = true;
+
+      if ((leftEar.y - rightEar.y) < -0.05) {
+        feedback.push("머리를 왼쪽으로 살짝 돌려 고개를 정돈해보세요.");
+        isGood = false;
+      } else {
+        feedback.push("머리 위치 및 시선 각도 양호합니다.");
+      }
+
+      if (Math.abs(leftShoulder.y - rightShoulder.y) > 0.08) {
+        feedback.push("악기와 어깨가 수평을 이루도록 균형을 맞춰주세요.");
+        isGood = false;
+      } else {
+        feedback.push("어깨 수평 및 상체 자세가 안정적입니다.");
+      }
+
+      poseFeedback.innerHTML = feedback.map(i => `<li>${i}</li>`).join('');
+      poseBadge.className = isGood ? "status-badge bg-good" : "status-badge bg-warn";
+      poseBadge.innerText = isGood ? "바른 자세 유지 중" : "자세 교정 필요";
+    }
+
+    // 1공, 2공, 3공 통합 운지 분석
+    function analyzeTripleUnji(multiHandLandmarks, multiHandedness) {
+      let leftHandLandmarks = null;
+
+      for (let i = 0; i < multiHandedness.length; i++) {
+        if (multiHandedness[i].label === 'Right') { // 거울 모드 고려
+          leftHandLandmarks = multiHandLandmarks[i];
+          break;
+        }
+      }
+
+      if (leftHandLandmarks) {
+        fingerBadge.className = "status-badge bg-good";
+        fingerBadge.innerText = "왼손 운지 감지 완료";
+
+        // 손가락 마디 및 끝 좌표 (8: 집게, 12: 중지, 16: 약지)
+        const h1 = leftHandLandmarks[8].y > leftHandLandmarks[6].y - 0.02;  // 제1지공
+        const h2 = leftHandLandmarks[12].y > leftHandLandmarks[10].y - 0.02; // 제2지공
+        const h3 = leftHandLandmarks[16].y > leftHandLandmarks[14].y - 0.02; // 제3지공
+
+        updateHoleUI(hole1Ox, h1);
+        updateHoleUI(hole2Ox, h2);
+        updateHoleUI(hole3Ox, h3);
+
+        // 율명 최종 판정
+        if (h1 && h2 && h3) {
+          detectedYulmyeong.innerText = "潢 (청황)";
+          detectedYulmyeong.style.color = "#27ae60";
+        } else if (h1 && h2 && !h3) {
+          detectedYulmyeong.innerText = "汰 (청태)";
+          detectedYulmyeong.style.color = "#f39c12";
+        } else if (h1 && !h2 && !h3) {
+          detectedYulmyeong.innerText = " (청고)";
+          detectedYulmyeong.style.color = "#e74c3c";
+        } else {
+          detectedYulmyeong.innerText = "운지 대기 중 (지공 열림)";
+          detectedYulmyeong.style.color = "#7f8c8d";
+        }
+      } else {
+        fingerBadge.className = "status-badge bg-warn";
+        fingerBadge.innerText = "왼손을 카메라에 보여주세요";
+        resetHoleUI();
+      }
+    }
+
+    function updateHoleUI(elem, isCovered) {
+      elem.innerText = isCovered ? "닫힘(O)" : "열림(X)";
+      elem.style.color = isCovered ? "#27ae60" : "#e74c3c";
+    }
+
+    function resetHoleUI() {
+      [hole1Ox, hole2Ox, hole3Ox].forEach(e => { e.innerText = "-"; e.style.color = "#95a5a6"; });
+      detectedYulmyeong.innerText = "-";
+      detectedYulmyeong.style.color = "#2c3e50";
+    }
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({image: videoElement});
+        await hands.send({image: videoElement});
+      },
+      width: 640,
+      height: 480
+    });
+    camera.start();
+  </script>
+</body>
+</html>
